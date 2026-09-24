@@ -19,8 +19,9 @@ from personality_v14 import delivery_hint
 
 SAMPLE_RATE = 16000
 RECORD_SECONDS = 15
-MIN_SPEECH_SECONDS = 0.25
-SILENCE_TO_STOP = 0.45
+MIN_SPEECH_SECONDS = 0.20
+# Give a speaker room to pause between words without ending the command.
+SILENCE_TO_STOP = 0.90
 START_TIMEOUT = 12.0
 SPEECH_THRESHOLD = 220.0
 ENERGY_INTERVAL = 0.05
@@ -165,7 +166,7 @@ class LocalWhisper:
 
             max_preroll = max(
                 1,
-                int(0.35 / block_seconds)
+                int(0.50 / block_seconds)
             )
 
             if not speech_started and len(chunks) > max_preroll:
