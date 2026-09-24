@@ -952,11 +952,13 @@ def smart_open_app(name):
                         target
                     )
                 else:
-                    os.system(
+                    status = os.system(
                         f'start "" "{target}"'
                     )
+                    if status != 0:
+                        return f"{name} kholne ki command fail ho gayi."
 
-                return f"{name} khol diya."
+                return f"{name} kholne ki command bheji; window confirm nahi kar payi."
             except Exception as error:
                 print(
                     "Built-in app open error:",
@@ -991,9 +993,7 @@ def smart_open_app(name):
             os.startfile(
                 str(best["path"])
             )
-            return (
-                f"{best['name']} khol diya."
-            )
+            return f"{best['name']} kholne ki command bheji; window confirm nahi kar payi."
         except Exception as error:
             print(
                 "Smart app open error:",
@@ -1430,6 +1430,56 @@ def get_due_reminders():
     return due
 
 
+def _running_processes(names):
+    """Get matching PIDs; inability to inspect a process is not proof of success."""
+    wanted = {name.lower() for name in names}
+    result = set()
+    try:
+        for process in psutil.process_iter(["name"]):
+            if (process.info.get("name") or "").lower() in wanted:
+                result.add(process.pid)
+    except (psutil.Error, OSError) as error:
+        print("Process check error:", error)
+        return None
+    return result
+
+
+def _open_checked(label, target, names):
+    before = _running_processes(names)
+    try:
+        status = os.system("start " + target)
+    except OSError as error:
+        print("App launch error:", error)
+        return f"{label} nahi khul paya."
+    if status != 0:
+        return f"{label} kholne ki command fail ho gayi."
+    for _ in range(8):
+        time.sleep(0.25)
+        after = _running_processes(names)
+        if after is not None and after and (before is None or after - before):
+            return f"{label} chal raha hai."
+    if before:
+        return f"{label} pehle se chal raha tha; nayi window confirm nahi kar payi."
+    return f"{label} kholne ki command bheji, lekin chalna confirm nahi kar payi."
+
+
+def _close_checked(label, names):
+    before = _running_processes(names)
+    if before == set():
+        return f"{label} pehle se band hai."
+    for name in names:
+        try:
+            os.system("taskkill /IM " + name + " /F >nul 2>&1")
+        except OSError as error:
+            print("App close error:", error)
+    for _ in range(8):
+        time.sleep(0.25)
+        after = _running_processes(names)
+        if after == set():
+            return f"{label} band ho gaya."
+    return f"{label} band karne ki command bheji, lekin confirm nahi kar payi."
+
+
 def execute_action(command):
     # Clock questions must never be sent to the model, which can invent a time.
     normalized = re.sub(r"\s+", " ", (command or "").lower()).strip()
@@ -1450,61 +1500,55 @@ def execute_action(command):
         print("Search query:", query)
 
     if action == "OPEN_CHROME":
-        os.system("start chrome")
-        return "Chrome khol diya."
+        return _open_checked("Chrome", "chrome", ("chrome.exe",))
 
     elif action == "OPEN_NOTEPAD":
-        os.system("start notepad")
-        return "Notepad khol diya."
+        return _open_checked("Notepad", "notepad", ("notepad.exe",))
 
     elif action == "OPEN_CALCULATOR":
-        os.system("start calc")
-        return "Calculator khol diya."
+        return _open_checked("Calculator", "calc", ("calc.exe", "CalculatorApp.exe"))
 
     elif action == "OPEN_EXPLORER":
-        os.system("start explorer")
-        return "File Explorer khol diya."
+        status = os.system("start explorer")
+        return ("File Explorer kholne ki command bheji; window confirm nahi kar payi."
+                if status == 0 else "File Explorer kholne ki command fail ho gayi.")
 
     elif action == "OPEN_GOOGLE":
-        webbrowser.open("https://www.google.com")
-        return "Google khol diya."
+        opened = webbrowser.open("https://www.google.com")
+        return "Google browser mein kholne ki command bheji." if opened else "Google kholne ki command fail ho gayi."
 
     elif action == "OPEN_YOUTUBE":
-        webbrowser.open("https://www.youtube.com")
-        return "YouTube khol diya."
+        opened = webbrowser.open("https://www.youtube.com")
+        return "YouTube browser mein kholne ki command bheji." if opened else "YouTube kholne ki command fail ho gayi."
 
     elif action == "GOOGLE_SEARCH":
         if not query:
             return "Kya search karna hai?"
         encoded_query = urllib.parse.quote_plus(query)
-        webbrowser.open("https://www.google.com/search?q=" + encoded_query)
-        return f"Google par {query} search kar diya."
+        opened = webbrowser.open("https://www.google.com/search?q=" + encoded_query)
+        return f"Google par {query} search kholne ki command bheji." if opened else "Google search nahi khul paya."
 
     elif action == "YOUTUBE_SEARCH":
         if not query:
             return "YouTube par kya search karna hai?"
         encoded_query = urllib.parse.quote_plus(query)
-        webbrowser.open(
+        opened = webbrowser.open(
             "https://www.youtube.com/results?search_query=" + encoded_query
         )
-        return f"YouTube par {query} search kar diya."
+        return f"YouTube par {query} search kholne ki command bheji." if opened else "YouTube search nahi khul paya."
 
     elif action == "CLOSE_CHROME":
-        os.system("taskkill /IM chrome.exe /F >nul 2>&1")
-        return "Chrome band kar diya."
+        return _close_checked("Chrome", ("chrome.exe",))
 
     elif action == "CLOSE_NOTEPAD":
-        os.system("taskkill /IM notepad.exe /F >nul 2>&1")
-        return "Notepad band kar diya."
+        return _close_checked("Notepad", ("notepad.exe",))
 
     elif action == "CLOSE_CALCULATOR":
-        os.system("taskkill /IM CalculatorApp.exe /F >nul 2>&1")
-        os.system("taskkill /IM calc.exe /F >nul 2>&1")
-        return "Calculator band kar diya."
+        return _close_checked("Calculator", ("CalculatorApp.exe", "calc.exe"))
 
     elif action == "CLOSE_EXPLORER":
         pyautogui.hotkey("alt", "f4")
-        return "Active File Explorer window band kar diya."
+        return "Active window ko band karne ki command bheji; File Explorer confirm nahi kar payi."
 
     elif action == "VOLUME_UP":
         _press_media_key("volumeup", presses=3)
