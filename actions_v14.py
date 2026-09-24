@@ -1437,9 +1437,11 @@ def execute_action(command):
         r"\b(abhi|current|now|kitne baje|kya baj|kiya baj)\b", normalized
     ) and not re.search(r"\b(timer|reminder|alarm|set|lagao|yaad)\b", normalized):
         return "Abhi " + datetime.now().strftime("%I:%M %p") + " ho rahe hain."
-    if re.search(r"\b(date|tarikh|tareekh)\b", normalized) and re.search(
-        r"\b(aaj|today|current|abhi|kya|kiya)\b", normalized
-    ) and not re.search(r"\b(reminder|set|lagao|yaad)\b", normalized):
+    date_question = re.fullmatch(r"(?:date|tarikh|tareekh|today)", normalized) or (
+        re.search(r"\b(date|tarikh|tareekh)\b", normalized)
+        and re.search(r"\b(aaj|today|current|abhi|kya|kiya)\b", normalized)
+    )
+    if date_question and not re.search(r"\b(reminder|set|lagao|yaad)\b", normalized):
         return "Aaj " + datetime.now().strftime("%A, %d %B %Y") + " hai."
     action, query = understand_action(command)
     print("Detected action:", action)
