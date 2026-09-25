@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import threading
 import time
 
 import edge_tts
@@ -10,7 +11,7 @@ import sounddevice as sd
 
 from scipy.io.wavfile import write
 from faster_whisper import WhisperModel
-from personality_v14 import delivery_hint
+from personality_v14 import speech_plan
 
 
 # ============================================
@@ -395,9 +396,9 @@ class LunaVoiceOutput:
             "Bengali male": "bn-IN-BashkarNeural",
         }
 
-        # V13 defaults requested by user.
+        # V14 warm default; older speed choices remain selectable.
         self.voice_name = "Hindi female"
-        self.speech_speed = "Fast"
+        self.speech_speed = "Warm"
 
         # Kept for compatibility with older language-selection code.
         self.hindi_voice = self.voice_profiles["Hindi female"]
@@ -472,15 +473,16 @@ class LunaVoiceOutput:
             self.voice_name = voice_name
 
     def set_speed(self, speed):
-        if speed in {"Normal", "Fast", "Very fast"}:
+        if speed in {"Warm", "Normal", "Fast", "Very fast"}:
             self.speech_speed = speed
 
     def get_rate(self):
         return {
+            "Warm": "-8%",
             "Normal": "+0%",
             "Fast": "+25%",
             "Very fast": "+45%",
-        }.get(self.speech_speed, "+25%")
+        }.get(self.speech_speed, "-8%")
 
 
     # ========================================
@@ -504,18 +506,20 @@ class LunaVoiceOutput:
         selected_voice,
         output_file,
         rate_offset="+0%",
-        pitch="+0Hz"
+        pitch="+0Hz",
+        volume="+0%"
     ):
 
         base_rate = int(self.get_rate().rstrip("%"))
         offset = int(rate_offset.rstrip("%"))
-        effective_rate = max(-30, min(35, base_rate + offset))
+        effective_rate = max(-30, min(45, base_rate + offset))
         communicate = (
             edge_tts.Communicate(
                 text=text,
                 voice=selected_voice,
                 rate=f"{effective_rate:+d}%",
-                pitch=pitch
+                pitch=pitch,
+                volume=volume
             )
         )
 
@@ -778,6 +782,10 @@ class LunaVoiceOutput:
         text
     ):
 
+        plan = speech_plan(text)
+        if not plan:
+            return
+
         selected_voice = (
             self.select_voice(
                 text
@@ -789,39 +797,29 @@ class LunaVoiceOutput:
             selected_voice
         )
 
-        audio_file = os.path.join(
-            tempfile.gettempdir(),
-            "luna_voice_v14_%s_%s.mp3" % (os.getpid(), __import__("threading").get_ident())
-        )
+        audio_files = [
+            os.path.join(
+                tempfile.gettempdir(),
+                "luna_v14_%s_%s_%s.mp3" % (os.getpid(), threading.get_ident(), index)
+            ) for index in range(len(plan))
+        ]
 
-
-        rate_offset, pitch = delivery_hint(text)
-        asyncio.run(
-            self._generate(
-                text,
-                selected_voice,
-                audio_file,
-                rate_offset,
-                pitch
-            )
-        )
-
-
-        self.play_audio(
-            audio_file
-        )
-
+        async def generate_all():
+            await asyncio.gather(*(
+                self._generate(part, selected_voice, audio_files[index], rate, pitch, volume)
+                for index, (part, rate, pitch, volume, _) in enumerate(plan)
+            ))
 
         try:
-
-            if os.path.exists(
-                audio_file
-            ):
-
-                os.remove(
-                    audio_file
-                )
-
-        except Exception:
-
-            pass
+            asyncio.run(generate_all())
+            for audio_file, (_, _, _, _, pause) in zip(audio_files, plan):
+                self.play_audio(audio_file)
+                if pause:
+                    time.sleep(pause)
+        finally:
+            for audio_file in audio_files:
+                try:
+                    if os.path.exists(audio_file):
+                        os.remove(audio_file)
+                except OSError:
+                    pass
