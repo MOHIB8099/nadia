@@ -55,7 +55,7 @@ class LunaApp:
 
         # V13 default voice settings
         self.voice_choice = tk.StringVar(value="Hindi female")
-        self.speed_choice = tk.StringVar(value="Fast")
+        self.speed_choice = tk.StringVar(value="Warm")
 
         # ------------------------------------
         # STATE
@@ -265,6 +265,7 @@ class LunaApp:
         speed_menu = tk.OptionMenu(
             voice_settings,
             self.speed_choice,
+            "Warm",
             "Normal",
             "Fast",
             "Very fast",
